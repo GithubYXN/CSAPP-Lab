@@ -281,7 +281,17 @@ int howManyBits(int x) {
  *   Rating: 4
  */
 unsigned float_twice(unsigned uf) {
-  return 2;
+  int sign = uf & 0x80000000, exp = uf & 0x7f800000, frac = uf & 0x7fffff;
+  if (exp == 0x7f800000) {
+    return uf;
+  }
+  if (!exp) {
+    return sign | (uf << 1);
+  }
+  if (exp == 0x7f000000) {
+    return sign | 0x7f800000;
+  }
+  return sign | (exp + (1 << 23)) | frac;
 }
 /* 
  * float_i2f - Return bit-level equivalent of expression (float) x
@@ -293,7 +303,23 @@ unsigned float_twice(unsigned uf) {
  *   Rating: 4
  */
 unsigned float_i2f(int x) {
-  return 2;
+  int sign = x >> 31, exp, frac;
+  int shift = 31, round = 0;
+  if (x == 0x80000000) return 0xcf000000;
+  if (!x) return 0;
+  if (x < 0) x = -x;
+  while (!((x >> shift) & 1)) {
+    shift -= 1;
+  }
+  exp = (127 + shift) << 23;
+  frac = x << (32 - shift);
+  // large than half
+  if ((frac & 0x1ff) > 0x100) round = 1;
+  // equal to half and previous bit is 1, round too
+  if ((frac & 0x3ff) == 0x300) round = 1;
+  frac = ((frac >> 9) & 0x007fffff) + round ;
+  
+  return (sign << 31) + exp + frac;
 }
 /* 
  * float_f2i - Return bit-level equivalent of expression (int) f
@@ -308,5 +334,23 @@ unsigned float_i2f(int x) {
  *   Rating: 4
  */
 int float_f2i(unsigned uf) {
-  return 2;
+  int sign = uf & 0x80000000, exp = (uf & 0x7f800000) >> 23, frac = uf & 0x7fffff;
+  int round = 0, shift = exp - 127, res;
+  if (exp > 126 && exp <= 150) {
+    if ((frac >> shift) >= (1 << (23 - shift))) {
+      round = 1;
+    } 
+    res = ((frac | 0x800000) >> (23 - shift)) + round;
+    if (sign) return -res;
+    return res;
+  }
+  if (exp > 150 && exp < 158) {
+    res = (frac | 0x800000) << (shift - 23);
+    if (sign) return -res;
+    return res;
+  }
+  if (exp >= 158) {
+    return 0x80000000u;
+  }
+  return 0;
 }
