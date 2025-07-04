@@ -59,8 +59,75 @@ void transpose_submit(int M, int N, int A[N][M], int B[M][N]) {
         }
       }
     }
-  } else if (M == 0) {
-    return;
+  } else if (M == 64) {
+    // 8 * 8 block with internal `4` 4 * 4 blocks
+    for (i = 0; i < N; i += 8) {
+      for (j = 0; j < M; j += 8) {
+        // handle left-top block
+        for (k = i; k < i + 4; k++) {
+          a1 = A[k][j];
+          a2 = A[k][j + 1];
+          a3 = A[k][j + 2];
+          a4 = A[k][j + 3];
+          a5 = A[k][j + 4];
+          a6 = A[k][j + 5];
+          a7 = A[k][j + 6];
+          a8 = A[k][j + 7];
+
+          B[j][k] = a1;
+          B[j + 1][k] = a2;
+          B[j + 2][k] = a3;
+          B[j + 3][k] = a4;
+
+          B[j][k + 4] = a5;
+          B[j + 1][k + 4] = a6;
+          B[j + 2][k + 4] = a7;
+          B[j + 3][k + 4] = a8;
+        }
+
+        // handle left-bottom and right-top
+        for (k = j; k < j + 4; k++) {
+          a1 = A[i + 4][k];
+          a2 = A[i + 5][k];
+          a3 = A[i + 6][k];
+          a4 = A[i + 7][k];
+
+          a5 = B[k][i + 4];
+          a6 = B[k][i + 5];
+          a7 = B[k][i + 6];
+          a8 = B[k][i + 7];
+
+
+          B[k][i + 4] = a1;
+          B[k][i + 5] = a2;
+          B[k][i + 6] = a3;
+          B[k][i + 7] = a4;
+
+          B[k + 4][i] = a5;
+          B[k + 4][i + 1] = a6;
+          B[k + 4][i + 2] = a7;
+          B[k + 4][i + 3] = a8;
+        }
+
+        // handle right-bottom
+        for (k = i + 4; k < i + 8; k++) {
+          a1 = A[k][j + 4]; 
+          a2 = A[k][j + 5]; 
+          a3 = A[k][j + 6]; 
+          a4 = A[k][j + 7]; 
+
+          B[j + 4][k] = a1;
+          B[j + 5][k] = a2;
+          B[j + 6][k] = a3;
+          B[j + 7][k] = a4;
+        }
+      }
+    }
+  } else if (M == 61) {
+    for (i = 0; i < N; i += 8) {
+      for (j = 0; j < M; j += 8) {
+      }
+    }
   }
 }
 
