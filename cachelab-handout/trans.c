@@ -10,9 +10,6 @@
 #include <stdio.h>
 #include "cachelab.h"
 
-#define ROW_STEP 8
-#define COL_STEP 8
-
 int is_transpose(int M, int N, int A[N][M], int B[M][N]);
 
 /* 
@@ -124,8 +121,30 @@ void transpose_submit(int M, int N, int A[N][M], int B[M][N]) {
       }
     }
   } else if (M == 61) {
-    for (i = 0; i < N; i += 8) {
-      for (j = 0; j < M; j += 8) {
+    a5 = 22, a6 = 22;
+    a7 = (N / a5) * a5;
+    a8 = (M / a6) * a5;
+    for (i = 0; i < a7; i += a5) {
+      for (j = 0; j < a8; j += a6) {
+        for (k = i; k < i + a5; k++) {
+          for (l = j; l < j + a6; l++) {
+            a1 = A[k][l];
+            B[l][k] = a1;
+          }
+        }
+      }
+    }
+
+    for (k = i; k < N; k++) {
+      for (l = 0; l < M; l++) {
+        a1 = A[k][l];
+        B[l][k] = a1;
+      }
+    }
+    for (k = 0; k < i; k++) {
+      for (l = j; l < M; l++) {
+        a1 = A[k][l];
+        B[l][k] = a1;
       }
     }
   }
@@ -152,36 +171,6 @@ void trans(int M, int N, int A[N][M], int B[M][N]) {
 
 }
 
-char trans_1_desc[] = "v1";
-void trans_1(int M, int N, int A[N][M], int B[M][N]) {
-  int i, j, ii, jj, tmp;
-  int x = (N / 4) * 4, y = (M / 4) * 4;
-
-  for (i = 0; i < x; i += 4) {
-    for (j = 0; j < y; j += 4) {
-      for (ii = i; ii < i + 4; ii++) {
-        for (jj = j; jj < j + 4; jj++) {
-          tmp = A[ii][jj];
-          B[jj][ii] = tmp;
-        }
-      }
-    }
-  }
-
-  for (int k = 0; k < i; k++) {
-    for (int t = j; t < M; t++) {
-      tmp = A[k][t];
-      B[t][k] = tmp;
-    }
-  }
-  for ( ; i < N; i++) {
-    for (int k = 0; k < M; k++) {
-      tmp = A[i][k];
-      B[k][i] = tmp;
-    }
-  }
-}
-
 /*
  * registerFunctions - This function registers your transpose
  *     functions with the driver.  At runtime, the driver will
@@ -192,9 +181,6 @@ void trans_1(int M, int N, int A[N][M], int B[M][N]) {
 void registerFunctions() {
     /* Register your solution function */
     registerTransFunction(transpose_submit, transpose_submit_desc); 
-    registerTransFunction(trans_1, trans_1_desc); 
-    // registerTransFunction(trans_2, trans_2_desc); 
-    // registerTransFunction(trans_3, trans_3_desc); 
 
     /* Register any additional transpose functions */
     registerTransFunction(trans, trans_desc); 
