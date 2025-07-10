@@ -1,7 +1,7 @@
 /*
  * tsh - A tiny shell program with job control
  *
- * <Put your name and login ID here>
+ * Yang
  */
 #include <ctype.h>
 #include <errno.h>
@@ -84,6 +84,16 @@ void app_error(char *msg);
 typedef void handler_t(int);
 handler_t *Signal(int signum, handler_t *handler);
 
+/* Wrapper functions */
+pid_t Fork();
+int Setpgid(pid_t pid, pid_t pgid);
+void Execve(const char *path, char *const *argv, char *const *envp);
+int Sigfillset(sigset_t *set);
+int Sigemptyset(sigset_t *set);
+int Sigaddset(sigset_t *set, int signo);
+int Sigprocmask(int how, const sigset_t *restrict set, sigset_t *restrict oset);
+int Kill(pid_t pid, int sig);
+
 /*
  * main - The shell's main routine
  */
@@ -161,7 +171,40 @@ int main(int argc, char **argv) {
  * background children don't receive SIGINT (SIGTSTP) from the kernel
  * when we type ctrl-c (ctrl-z) at the keyboard.
  */
-void eval(char *cmdline) { return; }
+void eval(char *cmdline) {
+  char *argv[MAXARGS];
+  int bg = parseline(cmdline, argv);
+
+  if (argv[0] == NULL) {
+    return;
+  }
+
+  pid_t pid;
+  sigset_t mask_all, mask_one, prev_mask;
+
+  Sigfillset(&mask_all);
+  Sigemptyset(&mask_one);
+  Sigaddset(&mask_one, SIGCHLD);
+
+  if (!builtin_cmd(argv)) {
+    Sigprocmask(SIG_BLOCK, &mask_one, &prev_mask);
+    if ((pid = Fork()) == 0) {
+      Setpgid(0, 0);
+      Sigprocmask(SIG_SETMASK, &prev_mask, NULL);
+      Execve(argv[0], argv, environ);
+    }
+
+    Sigprocmask(SIG_BLOCK, &mask_all, NULL);
+    addjob(jobs, pid, bg ? BG : FG, cmdline);
+    Sigprocmask(SIG_SETMASK, &prev_mask, NULL);
+    if (!bg) {
+      waitfg(pid);
+      return;
+    }
+    printf("[%d] (%d) %s", pid2jid(pid), pid, cmdline);
+  }
+  return;
+}
 
 /*
  * parseline - Parse the command line and build the argv array.
@@ -221,17 +264,42 @@ int parseline(const char *cmdline, char **argv) {
  * builtin_cmd - If the user has typed a built-in command then execute
  *    it immediately.
  */
-int builtin_cmd(char **argv) { return 0; /* not a builtin command */ }
+int builtin_cmd(char **argv) {
+  if (strncmp(argv[0], "quit", MAXLINE) == 0) {
+    exit(0);
+  }
+  if (strncmp(argv[0], "jobs", MAXLINE) == 0) {
+    listjobs(jobs);
+    return 1;
+  }
+  if ((strncmp(argv[0], "bg", MAXLINE) == 0) ||
+      (strncmp(argv[0], "fg", MAXLINE) == 0)) {
+    do_bgfg(argv);
+    return 1;
+  }
+
+  return 0; /* not a builtin command */
+}
 
 /*
  * do_bgfg - Execute the builtin bg and fg commands
  */
-void do_bgfg(char **argv) { return; }
+void do_bgfg(char **argv) {
+  if (strncmp(argv[0], "fg", MAXLINE) == 0) {
+
+  } else {
+  }
+}
 
 /*
  * waitfg - Block until process pid is no longer the foreground process
  */
-void waitfg(pid_t pid) { return; }
+void waitfg(pid_t pid) {
+  while (fgpid(jobs) == pid) {
+    sleep(0);
+  }
+  return;
+}
 
 /*****************
  * Signal handlers
@@ -244,21 +312,70 @@ void waitfg(pid_t pid) { return; }
  *     available zombie children, but doesn't wait for any other
  *     currently running children to terminate.
  */
-void sigchld_handler(int sig) { return; }
+void sigchld_handler(int sig) {
+  int olderrno = errno;
+  sigset_t mask_all, prev_mask;
+  pid_t pid;
+  int status;
+
+  Sigfillset(&mask_all);
+
+  while ((pid = waitpid(-1, &status, WNOHANG | WUNTRACED)) > 0) {
+    if (WIFSTOPPED(status)) {
+      printf("Job [%d] (%d) stopped by signal %d\n",
+             pid2jid(pid), pid, WSTOPSIG(status));
+
+      struct job_t *job = getjobpid(jobs, pid);
+      job->state = ST;
+      // sigset_t mask_cont;
+      // Sigfillset(&mask_cont);
+      // sigdelset(&mask_cont, SIGCONT);
+      // sigsuspend(&mask_cont);
+      return;
+    }
+    if (WIFSIGNALED(status)) {
+      printf("Job [%d] (%d) terminated by signal %d\n",
+             pid2jid(pid), pid, WTERMSIG(status));
+    }
+   
+    Sigprocmask(SIG_BLOCK, &mask_all, &prev_mask);
+    deletejob(jobs, pid);
+    Sigprocmask(SIG_SETMASK, &prev_mask, NULL);
+  }
+
+  if (errno != ECHILD) {
+    unix_error("waitpid error");
+  }
+
+  errno = olderrno;
+  return;
+}
 
 /*
  * sigint_handler - The kernel sends a SIGINT to the shell whenver the
  *    user types ctrl-c at the keyboard.  Catch it and send it along
  *    to the foreground job.
  */
-void sigint_handler(int sig) { return; }
+void sigint_handler(int sig) {
+  pid_t fg_pid = fgpid(jobs);
+  if (fg_pid) {
+    Kill(-fg_pid, sig);
+  }
+  return;
+}
 
 /*
  * sigtstp_handler - The kernel sends a SIGTSTP to the shell whenever
  *     the user types ctrl-z at the keyboard. Catch it and suspend the
  *     foreground job by sending it a SIGTSTP.
  */
-void sigtstp_handler(int sig) { return; }
+void sigtstp_handler(int sig) { 
+  pid_t fg_pid = fgpid(jobs);
+  if (fg_pid) {
+    Kill(-fg_pid, sig);
+  }
+  return; 
+}
 
 /*********************
  * End signal handlers
@@ -465,4 +582,76 @@ handler_t *Signal(int signum, handler_t *handler) {
 void sigquit_handler(int sig) {
   printf("Terminating after receipt of SIGQUIT signal\n");
   exit(1);
+}
+
+/******************
+ * Wrapper functions
+ *******************/
+
+/*
+ * Fork - fork() with error check
+ */
+pid_t Fork() {
+  pid_t pid = fork();
+  if (pid < 0) {
+    unix_error("Fork error");
+  }
+  return pid;
+}
+
+int Setpgid(pid_t pid, pid_t pgid) {
+  int ret = setpgid(pid, pgid);
+  if (ret == -1) {
+    unix_error("Setpgid error");
+  }
+  return ret;
+}
+
+void Execve(const char *path, char *const *argv, char *const *envp) {
+  int ret = execve(path, argv, envp);
+  if (ret == -1) {
+    printf("%s: Command not found\n", path);
+    exit(0);
+  }
+}
+
+int Sigfillset(sigset_t *set) {
+  int ret = sigfillset(set);
+  if (ret == -1) {
+    unix_error("sigfillset error");
+  }
+  return ret;
+}
+
+int Sigemptyset(sigset_t *set) {
+  int ret = sigemptyset(set);
+  if (ret == -1) {
+    unix_error("sigemptyset error");
+  }
+  return ret;
+}
+
+int Sigaddset(sigset_t *set, int signo) {
+  int ret = sigaddset(set, signo);
+  if (ret == -1) {
+    unix_error("sigaddset error");
+  }
+  return ret;
+}
+
+int Sigprocmask(int how, const sigset_t *restrict set,
+                sigset_t *restrict oset) {
+  int ret = sigprocmask(how, set, oset);
+  if (ret == -1) {
+    unix_error("sigprocmask error");
+  }
+  return ret;
+}
+
+int Kill(pid_t pid, int sig) {
+  int ret = kill(pid, sig);
+  if (ret == -1) {
+    unix_error("kill error");
+  }
+  return ret;
 }
