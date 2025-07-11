@@ -285,10 +285,48 @@ int builtin_cmd(char **argv) {
  * do_bgfg - Execute the builtin bg and fg commands
  */
 void do_bgfg(char **argv) {
-  if (strncmp(argv[0], "fg", MAXLINE) == 0) {
+  int bg = (strncmp(argv[0], "bg", MAXLINE) == 0);
+  struct job_t *job;
 
-  } else {
+  if (argv[1] == NULL) {
+    printf("%s command requires PID or %%jobid argument\n", argv[0]);
+    return;
   }
+
+  if (strncmp(argv[1], "%0", MAXLINE) == 0) {
+    printf("%s: No such job\n", argv[1]);
+    return;
+  } else if (argv[1][0] == '%') {
+    int jid = atoi(argv[1] + (char)1);
+    job = getjobjid(jobs, jid);
+    if (job == NULL) {
+      printf("%s: No such job\n", argv[1]);
+      return;
+    }
+  } else {
+    int pid = atoi(argv[1]);
+    if (!pid && (strncmp(argv[1], "0", MAXLINE))) {
+      printf("%s: argument must be a PID or %%jobid\n", argv[0]);
+      return;
+    }
+    job = getjobpid(jobs, pid);
+    if (job == NULL) {
+      printf("(%d): No such process\n", pid);
+      return;
+    }
+  }
+
+  if (!bg) {
+    job->state = FG;
+    Kill(-job->pid, SIGCONT);
+    waitfg(job->pid);
+  } else {
+    job->state = BG;
+    Kill(-job->pid, SIGCONT);
+    printf("[%d] (%d) %s", job->jid, job->pid, job->cmdline);
+  }
+
+  return;
 }
 
 /*
@@ -322,28 +360,27 @@ void sigchld_handler(int sig) {
 
   while ((pid = waitpid(-1, &status, WNOHANG | WUNTRACED)) > 0) {
     if (WIFSTOPPED(status)) {
-      printf("Job [%d] (%d) stopped by signal %d\n",
-             pid2jid(pid), pid, WSTOPSIG(status));
+      printf("Job [%d] (%d) stopped by signal %d\n", pid2jid(pid), pid,
+             WSTOPSIG(status));
 
       struct job_t *job = getjobpid(jobs, pid);
       job->state = ST;
-      // sigset_t mask_cont;
-      // Sigfillset(&mask_cont);
-      // sigdelset(&mask_cont, SIGCONT);
-      // sigsuspend(&mask_cont);
-      return;
+      continue;
     }
     if (WIFSIGNALED(status)) {
-      printf("Job [%d] (%d) terminated by signal %d\n",
-             pid2jid(pid), pid, WTERMSIG(status));
+      printf("Job [%d] (%d) terminated by signal %d\n", pid2jid(pid), pid,
+             WTERMSIG(status));
     }
-   
+    if (WIFCONTINUED(status)) {
+      continue;
+    }
+
     Sigprocmask(SIG_BLOCK, &mask_all, &prev_mask);
     deletejob(jobs, pid);
     Sigprocmask(SIG_SETMASK, &prev_mask, NULL);
   }
 
-  if (errno != ECHILD) {
+  if (pid < 0 && errno != ECHILD) {
     unix_error("waitpid error");
   }
 
@@ -369,12 +406,12 @@ void sigint_handler(int sig) {
  *     the user types ctrl-z at the keyboard. Catch it and suspend the
  *     foreground job by sending it a SIGTSTP.
  */
-void sigtstp_handler(int sig) { 
+void sigtstp_handler(int sig) {
   pid_t fg_pid = fgpid(jobs);
   if (fg_pid) {
     Kill(-fg_pid, sig);
   }
-  return; 
+  return;
 }
 
 /*********************
@@ -611,6 +648,7 @@ void Execve(const char *path, char *const *argv, char *const *envp) {
   int ret = execve(path, argv, envp);
   if (ret == -1) {
     printf("%s: Command not found\n", path);
+    fflush(stdout);
     exit(0);
   }
 }
