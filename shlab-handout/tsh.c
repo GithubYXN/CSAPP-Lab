@@ -3,6 +3,7 @@
  *
  * Yang
  */
+#include <asm-generic/errno-base.h>
 #include <ctype.h>
 #include <errno.h>
 #include <signal.h>
@@ -92,6 +93,7 @@ int Sigfillset(sigset_t *set);
 int Sigemptyset(sigset_t *set);
 int Sigaddset(sigset_t *set, int signo);
 int Sigprocmask(int how, const sigset_t *restrict set, sigset_t *restrict oset);
+int Sigsuspend(const sigset_t *set);
 int Kill(pid_t pid, int sig);
 
 /*
@@ -333,8 +335,11 @@ void do_bgfg(char **argv) {
  * waitfg - Block until process pid is no longer the foreground process
  */
 void waitfg(pid_t pid) {
+  sigset_t mask;
+  Sigemptyset(&mask);
+
   while (fgpid(jobs) == pid) {
-    sleep(0);
+    Sigsuspend(&mask);
   }
   return;
 }
@@ -683,6 +688,16 @@ int Sigprocmask(int how, const sigset_t *restrict set,
   if (ret == -1) {
     unix_error("sigprocmask error");
   }
+  return ret;
+}
+
+int Sigsuspend(const sigset_t *set) {
+  int olderrno = errno;
+  int ret = sigsuspend(set);
+  if (ret == -1 && errno != EINTR) {
+    unix_error("sigsuspend erro");
+  }
+  errno = olderrno;
   return ret;
 }
 
