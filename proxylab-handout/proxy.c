@@ -1,6 +1,4 @@
 #include "csapp.h"
-#include <stdio.h>
-#include <strings.h>
 
 /* Recommended max cache and object sizes */
 #define MAX_CACHE_SIZE 1049000
@@ -15,6 +13,7 @@ typedef struct {
 void doit(int fd);
 int parse_url(url_t *url, char *uri);
 void parse_header(rio_t *rp, char *header, url_t *url);
+void *thread_routine(void *arg);
 
 /* You won't lose style points for including this long line in your code */
 static const char *user_agent_hdr =
@@ -22,7 +21,7 @@ static const char *user_agent_hdr =
     "Firefox/10.0.3\r\n";
 
 int main(int argc, char **argv) {
-  int listenfd, connfd;
+  int listenfd, *connfd;
   char host[MAXLINE], port[MAXLINE];
   socklen_t clientlen;
   struct sockaddr_storage clientaddr;
@@ -34,16 +33,27 @@ int main(int argc, char **argv) {
 
   Signal(SIGPIPE, SIG_IGN);
   listenfd = Open_listenfd(argv[1]);
+
   while (1) {
     clientlen = sizeof(clientaddr);
-    connfd = Accept(listenfd, (SA *)&clientaddr, &clientlen);
+    connfd = (int *)Malloc(sizeof(int));
+    *connfd = Accept(listenfd, (SA *)&clientaddr, &clientlen);
     Getnameinfo((SA *)&clientaddr, clientlen, host, MAXLINE, port, MAXLINE, 0);
     printf("Accept connection from (%s, %s)\n", host, port);
-    doit(connfd);
-    Close(connfd);
+
+    pthread_t tid;
+    Pthread_create(&tid, NULL, thread_routine, (void *)connfd);
   }
 
   return 0;
+}
+
+void *thread_routine(void *arg) {
+  Pthread_detach(Pthread_self());
+  int connfd = *(int *)arg;
+  doit(connfd);
+
+  return NULL;
 }
 
 void doit(int fd) {
@@ -72,9 +82,9 @@ void doit(int fd) {
   Rio_readinitb(&rio_s, servfd);
   Rio_writen(servfd, header, strlen(header));
 
-  int n;
+  size_t n;
   while ((n = Rio_readlineb(&rio_s, buf, MAXLINE)) != 0) {
-    printf("Accept %d bytes from server\n", n);
+    printf("Accept %d bytes from server\n", (int)n);
     Rio_writen(fd, buf, n);
   }
   Free(url);
